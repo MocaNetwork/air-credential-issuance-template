@@ -8,7 +8,7 @@ interface UserDataResponse {
   response: object;
 }
 
-interface EthosApiResponse {
+interface apiResponse {
   score?: number;
   level?: string;
   [key: string]: unknown;
@@ -54,30 +54,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "user Id not found" }, { status: 400 });
     }
 
-    // TODO: replace with real data fetching logic based on userId
-    // this could be an API to your Backend
-    // this example has hardcoded data for demonstration purposes
-    // the data here should match the credentialSubject schema defined in your Issuance Program
-    // you can find it in the Developer Dashboard
-    // e.g. { "name": "John Doe", "age": 30 }
-    // Make sure to include all required fields
 
     // Fetch data from Ethos API
-    let ethosData: EthosApiResponse = {};
+    // Current schema used is: { "address": string, "score": integer, "level": string }\
+
+    // Suggestion: Extract API integration to a separate service layer (e.g., /lib/services/ethos-api.ts)
+    
+    let apiData: apiResponse = {};
     try {
-      const ethosResponse = await fetch(
+      const apiResponse = await fetch(
         `https://api.ethos.network/api/v2/score/address?address=${userId}`
       );
-      if (ethosResponse.ok) {
-        ethosData = await ethosResponse.json() as EthosApiResponse;
+      if (apiResponse.ok) {
+        apiData = await apiResponse.json() as apiResponse;
       }
     } catch (error) {
-      console.error("Failed to fetch Ethos data:", error);
+      console.error("Failed to fetch api data:", error);
     }
 
     const responseData = {
-      score: ethosData.score,
-      level: ethosData.level,
+      // address: userId, 
+      score: apiData.score,
+      level: apiData.level,
     };
 
     return NextResponse.json(await createUserDataResponse(responseData));
