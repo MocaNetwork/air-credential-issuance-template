@@ -8,6 +8,12 @@ interface UserDataResponse {
   response: object;
 }
 
+interface EthosApiResponse {
+  score?: number;
+  level?: string;
+  [key: string]: unknown;
+}
+
 const createUserDataResponse = async (
   data: object
 ): Promise<UserDataResponse> => {
@@ -57,21 +63,21 @@ export async function POST(request: NextRequest) {
     // Make sure to include all required fields
 
     // Fetch data from Ethos API
-    let ethosData = {};
+    let ethosData: EthosApiResponse = {};
     try {
       const ethosResponse = await fetch(
         `https://api.ethos.network/api/v2/score/address?address=${userId}`
       );
       if (ethosResponse.ok) {
-        ethosData = await ethosResponse.json();
+        ethosData = await ethosResponse.json() as EthosApiResponse;
       }
     } catch (error) {
       console.error("Failed to fetch Ethos data:", error);
     }
 
     const responseData = {
-      score: (ethosData as any)?.score,
-      level: (ethosData as any)?.level,
+      score: ethosData.score,
+      level: ethosData.level,
     };
 
     return NextResponse.json(await createUserDataResponse(responseData));
