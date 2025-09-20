@@ -12,7 +12,7 @@ export function IssuanceModal() {
   const { airService, isInitialized } = useAirkit();
   const { openConnectModal } = useConnectModal();
   const { isConnected } = useAccount();
-  const { data: userData, isError, refetch } = useUserData();
+  const { data: userData, isError, isLoading: isUserDataLoading, refetch } = useUserData();
   const { accessToken, setAccessToken } = useSession();
   const [isWidgetLoading, setIsWidgetLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -123,6 +123,18 @@ export function IssuanceModal() {
       {isError ? (
         <div className="w-full max-w-[420px] text-sm text-destructive text-center">
           Failed to load user data. Please try again.
+        </div>
+      ) : isUserDataLoading ? (
+        <div className="w-full max-w-[420px] text-center space-y-4">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Fetching your portfolio data from Nansen...
+          </div>
+          <div className="text-xs text-muted-foreground">
+            This may take a moment while we gather your current and historical token holdings
+          </div>
         </div>
       ) : (
         <>
