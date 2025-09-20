@@ -55,7 +55,24 @@ export async function POST(request: NextRequest) {
     // you can find it in the Developer Dashboard
     // e.g. { "name": "John Doe", "age": 30 }
     // Make sure to include all required fields
-    const responseData = { total_volume: 21 };
+
+    // Fetch data from Ethos API
+    let ethosData = {};
+    try {
+      const ethosResponse = await fetch(
+        `https://api.ethos.network/api/v2/score/address?address=${userId}`
+      );
+      if (ethosResponse.ok) {
+        ethosData = await ethosResponse.json();
+      }
+    } catch (error) {
+      console.error("Failed to fetch Ethos data:", error);
+    }
+
+    const responseData = {
+      score: (ethosData as any)?.score,
+      level: (ethosData as any)?.level,
+    };
 
     return NextResponse.json(await createUserDataResponse(responseData));
   } catch (error) {
