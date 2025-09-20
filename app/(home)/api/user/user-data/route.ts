@@ -8,9 +8,24 @@ interface UserDataResponse {
   response: object;
 }
 
-interface apiResponse {
-  score?: number;
-  level?: string;
+interface NansenBalanceToken {
+  chain: string;
+  address: string;
+  token_address: string;
+  token_symbol: string;
+  token_name: string;
+  token_amount: number;
+  price_usd: number;
+  value_usd: number;
+}
+
+interface NansenApiResponse {
+  pagination?: {
+    page: number;
+    per_page: number;
+    is_last_page: boolean;
+  };
+  data?: NansenBalanceToken[];
   [key: string]: unknown;
 }
 
@@ -55,27 +70,82 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // Fetch data from Ethos API
-    // Current schema used is: { "address": string, "score": integer, "level": string }\
+    // Override userId for testing if test address is provided
+    const effectiveUserId = env.NEXT_PRIVATE_TEST_ADDRESS || userId;
 
-    // Suggestion: Extract API integration to a separate service layer (e.g., /lib/services/ethos-api.ts)
     
-    let apiData: apiResponse = {};
+    // Fetch data from Nansen API
+    // Current schema used is: { "address": string, "total_balance_usd": number, "token_count": number }
+
+    let nansenData: NansenApiResponse = {};
     try {
-      const apiResponse = await fetch(
-        `https://api.ethos.network/api/v2/score/address?address=${userId}`
+      const nansenResponse = await fetch(
+        "https://api.nansen.ai/api/v1/profiler/address/current-balance",
+        {
+          method: "POST",
+          headers: {
+            "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+          },
+          body: JSON.stringify({
+            address: effectiveUserId,
+            chain: "ethereum",
+            hide_spam_token: true,
+            pagination: {
+              page: 1,
+              per_page: 10,
+            },
+          }),
+        }
       );
-      if (apiResponse.ok) {
-        apiData = await apiResponse.json() as apiResponse;
+      
+      if (nansenResponse.ok) {
+        nansenData = await nansenResponse.json() as NansenApiResponse;
       }
     } catch (error) {
-      console.error("Failed to fetch api data:", error);
+      console.error("Failed to fetch Nansen data:", error);
     }
 
+    console.log("nansenData");
+    console.log(nansenData);
+
+    // Calculate aggregated value_usd from all token holdings
+    let totalValueUsd = 0;
+    let tokenCount = 0;
+    let topTokens: { symbol: string; value_usd: number }[] = [];
+
+    if (nansenData.data && Array.isArray(nansenData.data)) {
+      tokenCount = nansenData.data.length;
+      
+      // Loop through all tokens and sum their USD values
+      for (const token of nansenData.data) {
+        if (token.value_usd && typeof token.value_usd === 'number') {
+          totalValueUsd += token.value_usd;
+          
+          // Keep track of top tokens by value (for additional insights)
+          topTokens.push({
+            symbol: token.token_symbol,
+            value_usd: token.value_usd
+          });
+        }
+      }
+
+      // Sort tokens by value (highest first) and keep top 5
+      topTokens.sort((a, b) => b.value_usd - a.value_usd);
+      topTokens = topTokens.slice(0, 5);
+    }
+
+    console.log("effectiveUserId");
+    console.log("Total aggregated value USD:", totalValueUsd);
+    console.log("Token count:", tokenCount);
+    console.log("Top tokens:", topTokens);
+
     const responseData = {
-      // address: userId, 
-      score: apiData.score,
-      level: apiData.level,
+      address: effectiveUserId,
+      total_balance_usd: Math.round(totalValueUsd * 100) / 100, // Round to 2 decimal places
+      token_count: tokenCount,
+      // top_tokens: topTokens,
     };
 
     return NextResponse.json(await createUserDataResponse(responseData));
