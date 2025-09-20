@@ -74,78 +74,101 @@ export async function POST(request: NextRequest) {
     const effectiveUserId = env.NEXT_PRIVATE_TEST_ADDRESS || userId;
 
     
-    // Fetch data from Nansen API
+    // Fetch data from Nansen API with pagination
     // Current schema used is: { "address": string, "total_balance_usd": number, "token_count": number }
 
-    let nansenData: NansenApiResponse = {};
+    let allTokens: NansenBalanceToken[] = [];
+    let currentPage = 1;
+    let isLastPage = false;
+    const perPage = 10;
+
     try {
-      const nansenResponse = await fetch(
-        "https://api.nansen.ai/api/v1/profiler/address/current-balance",
-        {
-          method: "POST",
-          headers: {
-            "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
-            "Content-Type": "application/json",
-            "Accept": "*/*",
-          },
-          body: JSON.stringify({
-            address: effectiveUserId,
-            chain: "ethereum",
-            hide_spam_token: true,
-            pagination: {
-              page: 1,
-              per_page: 10,
+      // Loop through all pages to get complete token list
+      while (!isLastPage) {
+        console.log(`Fetching page ${currentPage}...`);
+        
+        const nansenResponse = await fetch(
+          "https://api.nansen.ai/api/v1/profiler/address/current-balance",
+          {
+            method: "POST",
+            headers: {
+              "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
+              "Content-Type": "application/json",
+              "Accept": "*/*",
             },
-          }),
+            body: JSON.stringify({
+              address: effectiveUserId,
+              chain: "all",
+              hide_spam_token: true,
+              pagination: {
+                page: currentPage,
+                per_page: perPage,
+              },
+            }),
+          }
+        );
+        
+        if (nansenResponse.ok) {
+          const pageData = await nansenResponse.json() as NansenApiResponse;
+          
+          // Add tokens from this page to the complete list
+          if (pageData.data && Array.isArray(pageData.data)) {
+            allTokens.push(...pageData.data);
+          }
+          
+          // Check if this is the last page
+          isLastPage = pageData.pagination?.is_last_page ?? true;
+          
+          console.log(`Page ${currentPage}: ${pageData.data?.length || 0} tokens, Last page: ${isLastPage}`);
+          
+          currentPage++;
+          
+          // Safety limit to prevent infinite loops
+          if (currentPage > 100) {
+            console.warn("Reached maximum page limit (100), stopping pagination");
+            break;
+          }
+        } else {
+          console.error(`Failed to fetch page ${currentPage}:`, nansenResponse.status);
+          break;
         }
-      );
-      
-      if (nansenResponse.ok) {
-        nansenData = await nansenResponse.json() as NansenApiResponse;
       }
+      
+      console.log(`Total tokens fetched: ${allTokens.length} across ${currentPage - 1} pages`);
+      
     } catch (error) {
       console.error("Failed to fetch Nansen data:", error);
     }
 
-    console.log("nansenData");
-    console.log(nansenData);
+    console.log("All tokens fetched:", allTokens.length);
 
     // Calculate aggregated value_usd from all token holdings
     let totalValueUsd = 0;
-    let tokenCount = 0;
-    let topTokens: { symbol: string; value_usd: number }[] = [];
+    let tokenCount = allTokens.length;
+    let mocaTokenAmount = 0;
 
-    if (nansenData.data && Array.isArray(nansenData.data)) {
-      tokenCount = nansenData.data.length;
-      
-      // Loop through all tokens and sum their USD values
-      for (const token of nansenData.data) {
-        if (token.value_usd && typeof token.value_usd === 'number') {
-          totalValueUsd += token.value_usd;
-          
-          // Keep track of top tokens by value (for additional insights)
-          topTokens.push({
-            symbol: token.token_symbol,
-            value_usd: token.value_usd
-          });
-        }
+    // Loop through all tokens and sum their USD values
+    for (const token of allTokens) {
+      if (token.value_usd && typeof token.value_usd === 'number') {
+        totalValueUsd += token.value_usd;
       }
-
-      // Sort tokens by value (highest first) and keep top 5
-      topTokens.sort((a, b) => b.value_usd - a.value_usd);
-      topTokens = topTokens.slice(0, 5);
+      
+      // Filter for MOCA token specifically
+      if (token.token_symbol === 'MOCA') {
+        mocaTokenAmount = token.token_amount || 0;
+      }
     }
 
     console.log("effectiveUserId");
     console.log("Total aggregated value USD:", totalValueUsd);
     console.log("Token count:", tokenCount);
-    console.log("Top tokens:", topTokens);
+    console.log("MOCA token amount:", mocaTokenAmount);
 
     const responseData = {
       address: effectiveUserId,
-      total_balance_usd: Math.round(totalValueUsd * 100) / 100, // Round to 2 decimal places
+      total_balance_USD: Math.round(totalValueUsd * 100) / 100, // Round to 2 decimal places
       token_count: tokenCount,
-      // top_tokens: topTokens,
+      moca_token_amount: Math.round(mocaTokenAmount * 100) / 100, // Round to 2 decimal places
     };
 
     return NextResponse.json(await createUserDataResponse(responseData));
