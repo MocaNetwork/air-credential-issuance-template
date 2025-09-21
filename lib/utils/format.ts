@@ -24,7 +24,7 @@ export const formatTokenAmount = (amount: number, decimalPlaces: number = 2) => 
   }).format(amount);
 };
 
-export const formatValue = (key: string, value: any): string => {
+export const formatValue = (key: string, value: unknown): string => {
   if (value === null || value === undefined) {
     return "N/A";
   }

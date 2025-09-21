@@ -347,7 +347,7 @@ const calculateHistoricalMocaMetrics = (historicalData: NansenHistoricalBalance[
   let totalHours = 0;
   let mocaSum = 0;
   
-  for (const [hour, hourData] of mocaByHour) {
+  for (const [, hourData] of mocaByHour) {
     let hourMocaTotal = 0;
     
     for (const balance of hourData) {
