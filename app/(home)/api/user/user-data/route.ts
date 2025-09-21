@@ -86,9 +86,8 @@ const CONFIG = {
   CHAIN: "all",
   
   // Test configuration (can be easily switched for test builds)
-  // TEST_ADDRESS: null as string | null, // Set to wallet address for testing, null for production
-  TEST_ADDRESS: "0x5ED0F666E6C20F5EEb2214514B56DF2adC47A0b2",
-  // Example: TEST_ADDRESS: "0x5ED0F666E6C20F5EEb2214514B56DF2adC47A0b2",
+  TEST_ADDRESS: null as string | null, // Set to wallet address for testing, null for production
+  // Example: TEST_ADDRESS: "0x1234567890123456789012345678901234567890",
 } as const;
 
 // =============================================
@@ -429,10 +428,10 @@ export async function POST(request: NextRequest) {
     const responseData = {
       address: effectiveUserId,
       is_test_address: isUsingTestAddress,
-      total_balance_USD: Math.round(currentMetrics.totalValueUsd),
-      token_count: currentMetrics.tokenCount,
-      moca_token_amount: Math.round(currentMetrics.mocaTokenAmount),
-      historical_avg_30D_hourly_moca_balance: Math.round(historicalMetrics.historicalMocaBalance),
+      total_balance_USD: Math.round(currentMetrics.totalValueUsd * 100) / 100, // number with 2 decimals
+      token_count: currentMetrics.tokenCount, // integer
+      moca_token_amount: Math.round(currentMetrics.mocaTokenAmount), // integer (no decimals)
+      historical_avg_30D_hourly_moca_balance: Math.round(historicalMetrics.historicalMocaBalance * 100) / 100, // number with 2 decimals
     };
 
     console.log("✅ Nansen data processing complete!");

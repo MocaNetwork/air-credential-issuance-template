@@ -43,7 +43,7 @@ POST https://api.nansen.ai/api/v1/profiler/address/current-balance
 **Request Structure**:
 ```json
 {
-  "address": "0x...",
+  "address": "0x1234567890123456789012345678901234567890",
   "chain": "ethereum", 
   "hide_spam_token": true,
   "pagination": {
@@ -70,7 +70,7 @@ POST https://api.nansen.ai/api/v1/profiler/address/historical-balances
 **Request Structure**:
 ```json
 {
-  "address": "0x...",
+  "address": "0x1234567890123456789012345678901234567890",
   "chain": "ethereum",
   "date": {
     "from": "2025-09-01T00:00:00Z",
