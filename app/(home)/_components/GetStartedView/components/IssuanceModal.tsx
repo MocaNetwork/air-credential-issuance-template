@@ -98,7 +98,10 @@ export function IssuanceModal() {
 
       const { response, jwt } = userData;
 
-      await issueCredential({ response: response as Record<string, string | number | object | null>, jwt });
+      // Remove is_test_address from credential data
+      const { is_test_address, ...credentialResponse } = response as Record<string, string | number | boolean | null>;
+
+      await issueCredential({ response: credentialResponse as Record<string, string | number | object | null>, jwt });
     } catch (error) {
       console.error(error);
     }
@@ -148,7 +151,7 @@ export function IssuanceModal() {
                   // Skip the is_test_address field from display
                   if (key === "is_test_address") return null;
                   
-                  const isTestAddress = (response as Record<string, unknown>).is_test_address;
+                  const isTestAddress = Boolean((response as Record<string, unknown>).is_test_address);
                   const isAddressField = key === "address";
                   
                   return (
