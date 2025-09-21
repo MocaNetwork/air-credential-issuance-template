@@ -148,7 +148,7 @@ export function IssuanceModal() {
                   // Skip the is_test_address field from display
                   if (key === "is_test_address") return null;
                   
-                  const isTestAddress = response.is_test_address;
+                  const isTestAddress = (response as any).is_test_address;
                   const isAddressField = key === "address";
                   
                   return (

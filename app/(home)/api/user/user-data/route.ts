@@ -429,10 +429,10 @@ export async function POST(request: NextRequest) {
     const responseData = {
       address: effectiveUserId,
       is_test_address: isUsingTestAddress,
-      total_balance_USD: Math.round(currentMetrics.totalValueUsd * 100) / 100,
+      total_balance_USD: Math.round(currentMetrics.totalValueUsd),
       token_count: currentMetrics.tokenCount,
-      moca_token_amount: Math.round(currentMetrics.mocaTokenAmount * 100) / 100,
-      historical_avg_moca_balance: Math.round(historicalMetrics.historicalMocaBalance * 100) / 100,
+      moca_token_amount: Math.round(currentMetrics.mocaTokenAmount),
+      historical_avg_30D_hourly_moca_balance: Math.round(historicalMetrics.historicalMocaBalance),
     };
 
     console.log("✅ Nansen data processing complete!");
