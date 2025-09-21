@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../../../../lib/env";
 import { verifySessionAccessToken } from "../../auth/common/login";
 
+// =============================================
+// TYPE DEFINITIONS
+// =============================================
+
 interface UserDataResponse {
   jwt: string;
   response: object;
@@ -51,335 +55,391 @@ interface NansenHistoricalApiResponse {
   [key: string]: unknown;
 }
 
-const createUserDataResponse = async (
-  data: object
-): Promise<UserDataResponse> => {
+interface DateInterval {
+  from: string;
+  to: string;
+  label: string;
+}
+
+// =============================================
+// CONFIGURATION
+// =============================================
+
+const CONFIG = {
+  // Pagination settings
+  CURRENT_BALANCE_PER_PAGE: 200,
+  HISTORICAL_PER_PAGE: 200,
+  MAX_PAGES_SAFETY_LIMIT: 100,
+  MAX_INTERVAL_PAGES_LIMIT: 50,
+  
+  // Historical data settings
+  TOTAL_DAYS: 30,
+  INTERVAL_DAYS: 7, // Can be adjusted: 1, 3, 7, 14, etc.
+  
+  // API endpoints
+  NANSEN_BASE_URL: "https://api.nansen.ai/api/v1/profiler/address",
+  CURRENT_BALANCE_ENDPOINT: "/current-balance",
+  HISTORICAL_BALANCE_ENDPOINT: "/historical-balances",
+  
+  // Token filter
+  TARGET_TOKEN_SYMBOL: "MOCA",
+  CHAIN: "all",
+  
+  // Test configuration (can be easily switched for test builds)
+  // TEST_ADDRESS: null as string | null, // Set to wallet address for testing, null for production
+  TEST_ADDRESS: "0x5ED0F666E6C20F5EEb2214514B56DF2adC47A0b2",
+  // Example: TEST_ADDRESS: "0x5ED0F666E6C20F5EEb2214514B56DF2adC47A0b2",
+} as const;
+
+// =============================================
+// UTILITY FUNCTIONS
+// =============================================
+
+/**
+ * Creates a signed JWT response for user data
+ */
+const createUserDataResponse = async (data: object): Promise<UserDataResponse> => {
   const jwt = await signJwt({
     partnerId: env.NEXT_PUBLIC_PARTNER_ID,
     scope: "issue",
   });
 
+  return { jwt, response: data };
+};
+
+/**
+ * Generates date intervals for historical data fetching
+ * Splits the total period into smaller chunks to handle API limits
+ */
+const generateDateIntervals = (totalDays: number, intervalDays: number): DateInterval[] => {
+  const numIntervals = Math.ceil(totalDays / intervalDays);
+  const intervals: DateInterval[] = [];
+  
+  for (let i = 0; i < numIntervals; i++) {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() - (i * intervalDays));
+    endDate.setUTCHours(23, 59, 59, 999);
+    
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (intervalDays - 1));
+    startDate.setUTCHours(0, 0, 0, 0);
+    
+    intervals.push({
+      from: startDate.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      to: endDate.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      label: `Interval ${i + 1} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})`
+    });
+  }
+  
+  return intervals;
+};
+
+/**
+ * Fetches current token balances from Nansen API with pagination
+ * Returns all tokens for the specified address
+ */
+const fetchCurrentTokenBalances = async (address: string): Promise<NansenBalanceToken[]> => {
+  const allTokens: NansenBalanceToken[] = [];
+  let currentPage = 1;
+  let isLastPage = false;
+
+  console.log("🔄 Starting current balance fetch...");
+
+  try {
+    while (!isLastPage) {
+      console.log(`📄 Fetching current balances page ${currentPage}...`);
+      
+      const response = await fetch(`${CONFIG.NANSEN_BASE_URL}${CONFIG.CURRENT_BALANCE_ENDPOINT}`, {
+        method: "POST",
+        headers: {
+          "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "*/*",
+        },
+        body: JSON.stringify({
+          address,
+          chain: CONFIG.CHAIN,
+          hide_spam_token: true,
+          pagination: {
+            page: currentPage,
+            per_page: CONFIG.CURRENT_BALANCE_PER_PAGE,
+          },
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error(`❌ Failed to fetch page ${currentPage}: ${response.status}`);
+        break;
+      }
+
+      const pageData = await response.json() as NansenApiResponse;
+      
+      if (pageData.data && Array.isArray(pageData.data)) {
+        allTokens.push(...pageData.data);
+        console.log(`✅ Page ${currentPage}: ${pageData.data.length} tokens added`);
+      }
+      
+      isLastPage = pageData.pagination?.is_last_page ?? true;
+      currentPage++;
+      
+      // Safety limit to prevent infinite loops
+      if (currentPage > CONFIG.MAX_PAGES_SAFETY_LIMIT) {
+        console.warn(`⚠️ Reached safety limit (${CONFIG.MAX_PAGES_SAFETY_LIMIT} pages), stopping pagination`);
+        break;
+      }
+    }
+    
+    console.log(`✅ Current balance fetch complete: ${allTokens.length} tokens across ${currentPage - 1} pages`);
+    return allTokens;
+    
+  } catch (error) {
+    console.error("❌ Failed to fetch current token balances:", error);
+    return [];
+  }
+};
+
+/**
+ * Fetches historical MOCA token data from Nansen API for specified intervals
+ * Uses server-side filtering for MOCA tokens to optimize data transfer
+ */
+const fetchHistoricalMocaBalances = async (address: string, intervals: DateInterval[]): Promise<NansenHistoricalBalance[]> => {
+  const allHistoricalData: NansenHistoricalBalance[] = [];
+
+  console.log("🔄 Starting historical MOCA data fetch...");
+  console.log(`📊 Configuration: ${intervals.length} intervals of ${CONFIG.INTERVAL_DAYS} days each`);
+
+  try {
+    for (let intervalIndex = 0; intervalIndex < intervals.length; intervalIndex++) {
+      const interval = intervals[intervalIndex];
+      console.log(`\n📅 === Fetching ${interval.label} ===`);
+      
+      let currentPage = 1;
+      let isLastPage = false;
+
+      while (!isLastPage) {
+        console.log(`📄 ${interval.label} - page ${currentPage}...`);
+        
+        const requestBody = {
+          address,
+          chain: CONFIG.CHAIN,
+          date: {
+            from: interval.from,
+            to: interval.to,
+          },
+          filters: {
+            token_symbol: CONFIG.TARGET_TOKEN_SYMBOL
+          },
+          pagination: {
+            page: currentPage,
+            per_page: CONFIG.HISTORICAL_PER_PAGE,
+          },
+        };
+        
+        const response = await fetch(`${CONFIG.NANSEN_BASE_URL}${CONFIG.HISTORICAL_BALANCE_ENDPOINT}`, {
+          method: "POST",
+          headers: {
+            "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+          },
+          body: JSON.stringify(requestBody),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ Failed to fetch ${interval.label} page ${currentPage}: ${response.status}`);
+          console.error(`Error response: ${errorText}`);
+          break;
+        }
+
+        const pageData = await response.json() as NansenHistoricalApiResponse;
+        
+        if (pageData.data && Array.isArray(pageData.data)) {
+          allHistoricalData.push(...pageData.data);
+          console.log(`✅ ${interval.label} page ${currentPage}: ${pageData.data.length} MOCA records added`);
+        }
+        
+        isLastPage = pageData.pagination?.is_last_page ?? true;
+        currentPage++;
+        
+        // Safety limit per interval
+        if (currentPage > CONFIG.MAX_INTERVAL_PAGES_LIMIT) {
+          console.warn(`⚠️ Reached interval limit (${CONFIG.MAX_INTERVAL_PAGES_LIMIT} pages) for ${interval.label}`);
+          break;
+        }
+      }
+      
+      console.log(`✅ Completed ${interval.label}: ${allHistoricalData.length} total MOCA records`);
+    }
+    
+    console.log(`✅ Historical fetch complete: ${allHistoricalData.length} MOCA records total`);
+    return allHistoricalData;
+    
+  } catch (error) {
+    console.error("❌ Failed to fetch historical MOCA balances:", error);
+    return [];
+  }
+};
+
+/**
+ * Calculates portfolio metrics from current token balances
+ */
+const calculateCurrentMetrics = (tokens: NansenBalanceToken[]) => {
+  let totalValueUsd = 0;
+  let mocaTokenAmount = 0;
+  const tokenCount = tokens.length;
+
+  console.log("🧮 Calculating current portfolio metrics...");
+
+  for (const token of tokens) {
+    // Sum total USD value across all tokens
+    if (token.value_usd && typeof token.value_usd === 'number') {
+      totalValueUsd += token.value_usd;
+    }
+    
+    // Extract current MOCA amount
+    if (token.token_symbol === CONFIG.TARGET_TOKEN_SYMBOL) {
+      mocaTokenAmount = token.token_amount || 0;
+      console.log(`🪙 Found current MOCA balance: ${mocaTokenAmount}`);
+    }
+  }
+
+  console.log(`💰 Total portfolio value: $${totalValueUsd.toFixed(2)}`);
+  console.log(`🔢 Token count: ${tokenCount}`);
+
   return {
-    jwt,
-    response: data,
+    totalValueUsd,
+    tokenCount,
+    mocaTokenAmount
   };
 };
 
-export async function POST(request: NextRequest) {
-  const sessionAccessToken = request.headers.get("Authorization");
+/**
+ * Calculates historical MOCA balance statistics (hourly averages over the period)
+ */
+const calculateHistoricalMocaMetrics = (historicalData: NansenHistoricalBalance[]) => {
+  console.log("🧮 Calculating historical MOCA metrics...");
+  
+  // Group data by hour for averaging
+  const mocaByHour = new Map<string, NansenHistoricalBalance[]>();
+  let validRecords = 0;
+  let invalidRecords = 0;
+  
+  for (const record of historicalData) {
+    if (!record.block_timestamp || typeof record.block_timestamp !== 'string') {
+      invalidRecords++;
+      continue;
+    }
+    
+    // Create hourly key (YYYY-MM-DD HH:00:00)
+    const hourKey = record.block_timestamp.substring(0, 13) + ':00:00';
+    if (!mocaByHour.has(hourKey)) {
+      mocaByHour.set(hourKey, []);
+    }
+    mocaByHour.get(hourKey)!.push(record);
+    validRecords++;
+  }
+  
+  console.log(`📊 Historical data processing: ${validRecords} valid, ${invalidRecords} invalid records`);
+  console.log(`⏰ Unique hours found: ${mocaByHour.size}`);
+  
+  // Calculate average MOCA balance across all hours
+  let totalHours = 0;
+  let mocaSum = 0;
+  
+  for (const [hour, hourData] of mocaByHour) {
+    let hourMocaTotal = 0;
+    
+    for (const balance of hourData) {
+      if (balance.token_amount && typeof balance.token_amount === 'number') {
+        hourMocaTotal += balance.token_amount;
+      }
+    }
+    
+    mocaSum += hourMocaTotal;
+    totalHours++;
+  }
+  
+  const averageBalance = totalHours > 0 ? mocaSum / totalHours : 0;
+  
+  console.log(`📈 Historical MOCA average: ${averageBalance.toFixed(2)} tokens over ${totalHours} hours`);
+  
+  return {
+    historicalMocaBalance: averageBalance,
+    totalHoursWithData: totalHours
+  };
+};
 
+// =============================================
+// MAIN API HANDLER
+// =============================================
+
+export async function POST(request: NextRequest) {
+  // 1. Authentication & Authorization
+  const sessionAccessToken = request.headers.get("Authorization");
   if (!sessionAccessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let sessionAccessTokenResult;
   try {
-    sessionAccessTokenResult = await verifySessionAccessToken(
-      sessionAccessToken
-    );
+    sessionAccessTokenResult = await verifySessionAccessToken(sessionAccessToken);
   } catch (error) {
-    console.error("Unauthorized", error);
+    console.error("❌ Unauthorized", error);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const { sub: userId } = sessionAccessTokenResult as {
-      sub: string;
-    };
-
+    // 2. Extract and validate user information
+    const { sub: userId } = sessionAccessTokenResult as { sub: string };
     if (!userId) {
       return NextResponse.json({ error: "user Id not found" }, { status: 400 });
     }
 
+    // 3. Determine effective user ID (test mode override)
+    const effectiveUserId = CONFIG.TEST_ADDRESS || userId;
+    const isUsingTestAddress = !!CONFIG.TEST_ADDRESS;
 
-    // Override userId for testing if test address is provided
-    const effectiveUserId = env.NEXT_PRIVATE_TEST_ADDRESS || userId;
+    console.log("🚀 Starting Nansen data fetch process...");
+    console.log(`👤 Target address: ${effectiveUserId}${isUsingTestAddress ? ' (TEST MODE)' : ''}`);
 
+    // 4. Fetch current token balances
+    const currentTokens = await fetchCurrentTokenBalances(effectiveUserId);
     
-    // Fetch data from Nansen API with pagination
-    // Current schema used is: { "address": string, "total_balance_usd": number, "token_count": number }
-
-    let allTokens: NansenBalanceToken[] = [];
-    let currentPage = 1;
-    let isLastPage = false;
-    const perPage = 10;
-
-    try {
-      // Loop through all pages to get complete token list
-      while (!isLastPage) {
-        console.log(`Fetching page ${currentPage}...`);
-        
-        const nansenResponse = await fetch(
-          "https://api.nansen.ai/api/v1/profiler/address/current-balance",
-          {
-            method: "POST",
-            headers: {
-              "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
-              "Content-Type": "application/json",
-              "Accept": "*/*",
-            },
-            body: JSON.stringify({
-              address: effectiveUserId,
-              chain: "all",
-              hide_spam_token: true,
-              pagination: {
-                page: currentPage,
-                per_page: perPage,
-              },
-            }),
-          }
-        );
-        
-        if (nansenResponse.ok) {
-          const pageData = await nansenResponse.json() as NansenApiResponse;
-          
-          // Add tokens from this page to the complete list
-          if (pageData.data && Array.isArray(pageData.data)) {
-            allTokens.push(...pageData.data);
-          }
-          
-          // Check if this is the last page
-          isLastPage = pageData.pagination?.is_last_page ?? true;
-          
-          console.log(`Page ${currentPage}: ${pageData.data?.length || 0} tokens, Last page: ${isLastPage}`);
-          
-          currentPage++;
-          
-          // Safety limit to prevent infinite loops
-          if (currentPage > 100) {
-            console.warn("Reached maximum page limit (100), stopping pagination");
-            break;
-          }
-        } else {
-          console.error(`Failed to fetch page ${currentPage}:`, nansenResponse.status);
-          break;
-        }
-      }
-      
-      console.log(`Total tokens fetched: ${allTokens.length} across ${currentPage - 1} pages`);
-      
-    } catch (error) {
-      console.error("Failed to fetch Nansen data:", error);
-    }
-
-    // Fetch historical balance data for the last 30 days
-    let allHistoricalBalances: NansenHistoricalBalance[] = [];
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const today = new Date();
-
-    console.log("Historical date range:");
-    console.log("From:", thirtyDaysAgo.toISOString());
-    console.log("To:", today.toISOString());
-
-    try {
-      let currentHistoricalPage = 1;
-      let isLastHistoricalPage = false;
-
-      // Loop through all pages to get complete historical data
-      while (!isLastHistoricalPage) {
-        console.log(`Fetching historical page ${currentHistoricalPage}...`);
-        
-        const historicalResponse = await fetch(
-          "https://api.nansen.ai/api/v1/profiler/address/historical-balances",
-          {
-            method: "POST",
-            headers: {
-              "apiKey": env.NEXT_PRIVATE_NANSEN_API_KEY,
-              "Content-Type": "application/json",
-              "Accept": "*/*",
-            },
-            body: JSON.stringify({
-              address: effectiveUserId,
-              chain: "all",
-              date: {
-                from: thirtyDaysAgo.toISOString(),
-                to: today.toISOString(),
-              },
-              pagination: {
-                page: currentHistoricalPage,
-                per_page: perPage,
-              },
-            }),
-          }
-        );
-        
-        if (historicalResponse.ok) {
-          const historicalPageData = await historicalResponse.json() as NansenHistoricalApiResponse;
-          
-          console.log(`Historical page ${currentHistoricalPage} response:`, JSON.stringify(historicalPageData, null, 2));
-          
-          // Add historical data from this page to the complete list
-          if (historicalPageData.data && Array.isArray(historicalPageData.data)) {
-            console.log(`Adding ${historicalPageData.data.length} records from page ${currentHistoricalPage}`);
-            allHistoricalBalances.push(...historicalPageData.data);
-          }
-          
-          // Check if this is the last page
-          isLastHistoricalPage = historicalPageData.pagination?.is_last_page ?? true;
-          
-          console.log(`Historical page ${currentHistoricalPage}: ${historicalPageData.data?.length || 0} records, Last page: ${isLastHistoricalPage}`);
-          console.log(`Total historical records so far: ${allHistoricalBalances.length}`);
-          
-          currentHistoricalPage++;
-          
-          // Safety limit to prevent infinite loops
-          if (currentHistoricalPage > 100) {
-            console.warn("Reached maximum historical page limit (100), stopping pagination");
-            break;
-          }
-        } else {
-          const errorText = await historicalResponse.text();
-          console.error(`Failed to fetch historical page ${currentHistoricalPage}:`, historicalResponse.status);
-          console.error(`Historical API error response:`, errorText);
-          break;
-        }
-      }
-      
-      console.log(`Total historical records fetched: ${allHistoricalBalances.length} across ${currentHistoricalPage - 1} pages`);
-      
-      // Debug: Show date distribution of historical data
-      const dateDistribution = new Map<string, number>();
-      for (const record of allHistoricalBalances) {
-        if (record.block_timestamp) {
-          const dateKey = record.block_timestamp.split('T')[0];
-          dateDistribution.set(dateKey, (dateDistribution.get(dateKey) || 0) + 1);
-        }
-      }
-      
-      console.log("Historical data distribution by date:");
-      const sortedDates = Array.from(dateDistribution.entries()).sort();
-      for (const [date, count] of sortedDates) {
-        console.log(`  ${date}: ${count} records`);
-      }
-      
-    } catch (error) {
-      console.error("Failed to fetch historical Nansen data:", error);
-    }
-
-    console.log("All tokens fetched:", allTokens.length);
-    console.log("All historical balances fetched:", allHistoricalBalances.length);
+    // 5. Generate date intervals for historical data
+    const intervals = generateDateIntervals(CONFIG.TOTAL_DAYS, CONFIG.INTERVAL_DAYS);
     
-    // Debug: Check the structure of the first few historical records
-    if (allHistoricalBalances.length > 0) {
-      console.log("Sample historical record structure:");
-      console.log("First record:", JSON.stringify(allHistoricalBalances[0], null, 2));
-      if (allHistoricalBalances.length > 1) {
-        console.log("Second record:", JSON.stringify(allHistoricalBalances[1], null, 2));
-      }
-    }
+    // 6. Fetch historical MOCA data
+    const historicalMocaData = await fetchHistoricalMocaBalances(effectiveUserId, intervals);
+    
+    // 7. Calculate current portfolio metrics
+    const currentMetrics = calculateCurrentMetrics(currentTokens);
+    
+    // 8. Calculate historical MOCA metrics
+    const historicalMetrics = calculateHistoricalMocaMetrics(historicalMocaData);
 
-    // Calculate aggregated value_usd from all token holdings
-    let totalValueUsd = 0;
-    let tokenCount = allTokens.length;
-    let mocaTokenAmount = 0;
+    // 9. Log final results
+    console.log("📊 === FINAL METRICS ===");
+    console.log(`💰 Total Portfolio Value: $${currentMetrics.totalValueUsd.toFixed(2)}`);
+    console.log(`🔢 Total Tokens: ${currentMetrics.tokenCount}`);
+    console.log(`🪙 Current MOCA: ${currentMetrics.mocaTokenAmount} tokens`);
+    console.log(`📈 Historical MOCA Average: ${historicalMetrics.historicalMocaBalance.toFixed(2)} tokens (${historicalMetrics.totalHoursWithData} hours)`);
 
-    // Loop through all tokens and sum their USD values
-    for (const token of allTokens) {
-      if (token.value_usd && typeof token.value_usd === 'number') {
-        totalValueUsd += token.value_usd;
-      }
-      
-      // Filter for MOCA token specifically
-      if (token.token_symbol === 'MOCA') {
-        mocaTokenAmount = token.token_amount || 0;
-      }
-    }
-
-    // Calculate historical balance statistics (last 30 days)
-    let historicalTotalBalance = 0;
-    let historicalMocaBalance = 0;
-    
-    // Group historical data by date and get the most recent entry for each date
-    const historicalByDate = new Map<string, NansenHistoricalBalance[]>();
-    
-    console.log("Processing historical records for date grouping...");
-    let validRecords = 0;
-    let invalidRecords = 0;
-    
-    for (const historical of allHistoricalBalances) {
-      // Debug each record
-      console.log("Processing record:", {
-        hasBlockTimestamp: !!historical.block_timestamp,
-        timestampType: typeof historical.block_timestamp,
-        timestampValue: historical.block_timestamp,
-        tokenSymbol: historical.token_symbol
-      });
-      
-      // Skip records without a valid block_timestamp
-      if (!historical.block_timestamp || typeof historical.block_timestamp !== 'string') {
-        console.warn("Skipping historical record with invalid block_timestamp:", historical);
-        invalidRecords++;
-        continue;
-      }
-      
-      const dateKey = historical.block_timestamp.split('T')[0]; // Get just the date part
-      if (!historicalByDate.has(dateKey)) {
-        historicalByDate.set(dateKey, []);
-      }
-      historicalByDate.get(dateKey)!.push(historical);
-      validRecords++;
-    }
-    
-    console.log(`Historical record processing: ${validRecords} valid, ${invalidRecords} invalid`);
-    console.log("Historical dates found:", Array.from(historicalByDate.keys()));
-    
-    // Calculate average historical balances across the 30-day period
-    let totalDaysWithData = 0;
-    let totalValueSum = 0;
-    let mocaValueSum = 0;
-    
-    for (const [date, dayBalances] of historicalByDate) {
-      let dayTotalValue = 0;
-      let dayMocaValue = 0;
-      
-      console.log(`Processing date ${date} with ${dayBalances.length} token records:`);
-      
-      for (const balance of dayBalances) {
-        if (balance.value_usd && typeof balance.value_usd === 'number') {
-          dayTotalValue += balance.value_usd;
-          console.log(`  ${balance.token_symbol}: $${balance.value_usd.toFixed(2)}`);
-        }
-        
-        if (balance.token_symbol === 'MOCA' && balance.token_amount) {
-          dayMocaValue += balance.token_amount;
-          console.log(`  MOCA found: ${balance.token_amount} tokens`);
-        }
-      }
-      
-      console.log(`  Date ${date} total: $${dayTotalValue.toFixed(2)} USD, ${dayMocaValue} MOCA tokens`);
-      
-      totalValueSum += dayTotalValue;
-      mocaValueSum += dayMocaValue;
-      totalDaysWithData++;
-    }
-    
-    // Calculate averages
-    if (totalDaysWithData > 0) {
-      historicalTotalBalance = totalValueSum / totalDaysWithData;
-      historicalMocaBalance = mocaValueSum / totalDaysWithData;
-    }
-
-    console.log("effectiveUserId");
-    console.log("Total aggregated value USD:", totalValueUsd);
-    console.log("Token count:", tokenCount);
-    console.log("MOCA token amount:", mocaTokenAmount);
-    console.log("Historical average total balance USD:", historicalTotalBalance);
-    console.log("Historical average MOCA balance:", historicalMocaBalance);
-    console.log("Days with historical data:", totalDaysWithData);
-
+    // 10. Prepare response data
     const responseData = {
       address: effectiveUserId,
-      total_balance_USD: Math.round(totalValueUsd * 100) / 100, // Round to 2 decimal places
-      token_count: tokenCount,
-      moca_token_amount: Math.round(mocaTokenAmount * 100) / 100, // Round to 2 decimal places
-      historical_avg_total_balance_USD: Math.round(historicalTotalBalance * 100) / 100, // 30-day average
-      historical_avg_moca_balance: Math.round(historicalMocaBalance * 100) / 100, // 30-day average
+      is_test_address: isUsingTestAddress,
+      total_balance_USD: Math.round(currentMetrics.totalValueUsd * 100) / 100,
+      token_count: currentMetrics.tokenCount,
+      moca_token_amount: Math.round(currentMetrics.mocaTokenAmount * 100) / 100,
+      historical_avg_moca_balance: Math.round(historicalMetrics.historicalMocaBalance * 100) / 100,
     };
 
+    console.log("✅ Nansen data processing complete!");
     return NextResponse.json(await createUserDataResponse(responseData));
+
   } catch (error) {
-    console.error("Error fetching user data:", error);
+    console.error("❌ Error fetching user data:", error);
     return NextResponse.json(
       { error: "Failed to fetch user data" },
       { status: 500 }

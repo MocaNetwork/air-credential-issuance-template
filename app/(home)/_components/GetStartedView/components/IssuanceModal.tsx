@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { useAirkit } from "@/lib/hooks/useAirkit";
 import { useSession } from "@/lib/hooks/useSession";
-import { formatKey, getNameFromAccessToken } from "@/lib/utils";
+import { formatKey, formatValue, getNameFromAccessToken } from "@/lib/utils";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useState } from "react";
 import { useAccount } from "wagmi";
@@ -144,11 +144,19 @@ export function IssuanceModal() {
                 {name && <>Welcome, {name}!</>}
               </div>
               <div className="space-y-0 text-center">
-                {Object.entries(response).map(([key, value]) => (
-                  <div key={key}>
-                    {formatKey(key)}: {value ?? "N/A"}
-                  </div>
-                ))}
+                {Object.entries(response).map(([key, value]) => {
+                  // Skip the is_test_address field from display
+                  if (key === "is_test_address") return null;
+                  
+                  const isTestAddress = response.is_test_address;
+                  const isAddressField = key === "address";
+                  
+                  return (
+                    <div key={key} className={isAddressField && isTestAddress ? "text-orange-600 font-semibold" : ""}>
+                      {formatKey(key, isTestAddress)}: {formatValue(key, value)}
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
