@@ -19,23 +19,44 @@ export const AirkitProvider = memo(
       });
     }, []);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [initError, setInitError] = useState<Error | null>(null);
 
     useEffect(() => {
       const init = async () => {
+        // Timeout protection - fail gracefully after 10 seconds
+        const timeoutId = setTimeout(() => {
+          console.warn("Airkit initialization timeout - checking SDK state");
+          // Sync with SDK's actual state instead of assuming true
+          setIsInitialized(airService.isInitialized);
+        }, 10000);
+
         if (airService.isInitialized) {
+          clearTimeout(timeoutId);
           setIsInitialized(true);
         } else {
           try {
+            console.log("Initializing Airkit with options:", defaultAirkitOptions);
             await airService.init(defaultAirkitOptions);
 
-            Promise.all([
-              airService.preloadWallet(),
-              airService.preloadCredential(),
-            ]);
+            // Preload in background (don't block UI)
+            // Track preload separately for better debugging
+            airService.preloadWallet().catch((err) => {
+              console.error("Wallet preload failed:", err);
+            });
 
-            setIsInitialized(true);
+            airService.preloadCredential().catch((err) => {
+              console.error("Credential preload failed:", err);
+            });
+
+            clearTimeout(timeoutId);
+            console.log("Airkit initialized successfully");
           } catch (error) {
             console.error("Error initializing Airkit", error);
+            setInitError(error as Error);
+            clearTimeout(timeoutId);
+          } finally {
+            // CRITICAL: Always sync React state with SDK's actual initialization state
+            setIsInitialized(airService.isInitialized);
           }
         }
       };
@@ -51,7 +72,7 @@ export const AirkitProvider = memo(
     }, []);
 
     return (
-      <AirkitContext.Provider value={{ airService, isInitialized }}>
+      <AirkitContext.Provider value={{ airService, isInitialized, initError }}>
         {children}
       </AirkitContext.Provider>
     );

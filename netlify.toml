@@ -1,0 +1,41 @@
+# Netlify Configuration for AIR Credential Issuance Template
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Environment variables needed for build (set in Netlify UI)
+# PARTNER_PRIVATE_KEY
+# SIGNING_ALGORITHM
+# NEXT_PUBLIC_BUILD_ENV
+# NEXT_PUBLIC_MOCA_CHAIN
+# NEXT_PUBLIC_PARTNER_ID
+# NEXT_PUBLIC_ISSUER_DID
+# NEXT_PUBLIC_ISSUE_PROGRAM_ID
+# NEXT_PUBLIC_REOWN_PROJECT_ID
+# NEXT_PUBLIC_HEADLINE
+# NEXT_PUBLIC_APP_NAME
+# NEXT_PUBLIC_THEME
+# NEXT_PUBLIC_AUTH_METHOD
+
+# Redirect all requests to Next.js for SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# JWKS endpoint should be publicly accessible
+[[headers]]
+  for = "/jwks.json"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=86400"
