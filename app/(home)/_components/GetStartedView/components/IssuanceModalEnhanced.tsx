@@ -503,7 +503,7 @@ export function IssuanceModalEnhanced() {
                     Issuing your credentials...
                   </p>
                   <p className="text-sm text-muted-foreground max-w-md">
-                    This may take a moment. Please don't close this window.
+                    This may take a moment. Please don&apos;t close this window.
                   </p>
                 </div>
               </div>
