@@ -7,12 +7,11 @@ Your AIR Credential Issuance Template is now fully configured with your Partner 
 ### ✅ Configured Values
 
 #### Partner Account
-- **Partner ID**: `12918f07-9e37-4e71-a428-91aa21255a99`
-- **Partner Name**: AIR Partner c7eb663b4ad64c4ca8e9fce7c464f43c
-- **Issuer DID**: `did:air:id:test:4P7KhXzLq3mUUytxUjaFqBsutxBWXsLhEFvpAhCgGM`
+- **Partner ID**: `3e8c5fd5-6679-48c6-9873-60b055e6914f`
+- **Issuer DID**: `did:air:id:test:4NyWcVNPe1KuCog1iNFPoMKV6S8GJcDTVVWi8sQy6t`
 
 #### Issuance Configuration
-- **Program ID**: `c21uu0g0wmjp40007741JK`
+- **Program ID**: `c21uu0g14vlb90037676xk`
 - **Environment**: Sandbox (Test)
 - **Chain**: Devnet
 
@@ -97,7 +96,7 @@ Or deploy to Vercel:
 ### 📚 Reference Information
 
 **Partner Details** (for reference):
-- Verifier DID: `did:key:Xwp99dp2i3RHxCcQcwNFP2V7JV9NDYozjpfV39V9YRz57zUmfAnDBYWDSnA6uARtnGgwLFdQvqouYpM6bXkbPCDj8uV`
+- Verifier DID: `did:key:Xwp8zrHinAHFhkQmJN9n6HLW3zM1CmBsApaF3mHUgY9eHV5eb62FtTbTj4iYm4sVU5dUXPtNKjxDYpynqsDPEYrmD3y`
 - Logo URL: `https://static.air3.com/partner/partner_generic_icon.svg`
 
 **Documentation**:
@@ -118,9 +117,9 @@ NEXT_PUBLIC_BUILD_ENV=sandbox
 NEXT_PUBLIC_MOCA_CHAIN=devnet
 
 # Partner Account Configuration
-NEXT_PUBLIC_PARTNER_ID=12918f07-9e37-4e71-a428-91aa21255a99
-NEXT_PUBLIC_ISSUER_DID=did:air:id:test:4P7KhXzLq3mUUytxUjaFqBsutxBWXsLhEFvpAhCgGM
-NEXT_PUBLIC_ISSUE_PROGRAM_ID=c21uu0g0wmjp40007741JK
+NEXT_PUBLIC_PARTNER_ID=3e8c5fd5-6679-48c6-9873-60b055e6914f
+NEXT_PUBLIC_ISSUER_DID=did:air:id:test:4NyWcVNPe1KuCog1iNFPoMKV6S8GJcDTVVWi8sQy6t
+NEXT_PUBLIC_ISSUE_PROGRAM_ID=c21uu0g14vlb90037676xk
 NEXT_PUBLIC_REOWN_PROJECT_ID=dfd0ec1d226114accc18a037e2b46e22
 
 # Branding
@@ -174,6 +173,6 @@ If you encounter issues:
 
 ---
 
-**Configuration Date**: November 10, 2025
-**Status**: ✅ Complete and Ready for Testing
-**Server**: Running on http://localhost:3001
+**Configuration Date**: November 10, 2025 (Updated)
+**Status**: ✅ Updated with New Partner Credentials
+**Environment**: Ready for Netlify Deployment
