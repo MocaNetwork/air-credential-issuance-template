@@ -9,6 +9,7 @@ export const defaultAirkitOptions: Parameters<
   buildEnv: env.NEXT_PUBLIC_BUILD_ENV,
   enableLogging: true,
   skipRehydration: false,
+  preloadCredential: true,
 };
 
 export const AirkitProvider = memo(
@@ -27,11 +28,6 @@ export const AirkitProvider = memo(
         } else {
           try {
             await airService.init(defaultAirkitOptions);
-
-            Promise.all([
-              airService.preloadWallet(),
-              airService.preloadCredential(),
-            ]);
 
             setIsInitialized(true);
           } catch (error) {
